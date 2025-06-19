@@ -33,7 +33,7 @@ check:
 ########################################################################################################################
 
 run:
-	poetry run python -m private_gpt
+	PGPT_PROFILES=${PGPT_PROFILES} poetry run python -m private_gpt
 
 dev-windows:
 	(set PGPT_PROFILES=local & poetry run python -m uvicorn private_gpt.main:app --reload --port 8001)

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AnyStr, BinaryIO
 
 from injector import inject, singleton
-from llama_index.core.node_parser import SentenceWindowNodeParser
+from llama_index.core.node_parser import SentenceWindowNodeParser, MarkdownNodeParser, SentenceSplitter
 from llama_index.core.storage import StorageContext
 
 from private_gpt.components.embedding.embedding_component import EmbeddingComponent
@@ -39,12 +39,28 @@ class IngestService:
             docstore=node_store_component.doc_store,
             index_store=node_store_component.index_store,
         )
-        node_parser = SentenceWindowNodeParser.from_defaults()
+        #node_parser = SentenceWindowNodeParser.from_defaults()
+
+        # Option A: MarkdownNodeParser seul (simple)
+        markdown_parser = MarkdownNodeParser.from_defaults(
+            include_metadata=True,
+            include_prev_next_rel=True,
+        )
+        
+        # Option: SentenceSplitter avec contrôle précis
+        sentence_splitter = SentenceSplitter(
+            chunk_size=512,                    # Ajuste selon tes besoins
+            chunk_overlap=100,                  # 10% de chunk_size
+            separator=" ",
+            paragraph_separator="\n\n\n",
+            include_metadata=True,
+            include_prev_next_rel=True,
+        )
 
         self.ingest_component = get_ingestion_component(
             self.storage_context,
             embed_model=embedding_component.embedding_model,
-            transformations=[node_parser, embedding_component.embedding_model],
+            transformations=[markdown_parser, sentence_splitter, embedding_component.embedding_model],
             settings=settings(),
         )
 
