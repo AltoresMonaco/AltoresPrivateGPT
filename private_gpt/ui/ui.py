@@ -30,9 +30,10 @@ logger = logging.getLogger(__name__)
 
 THIS_DIRECTORY_RELATIVE = Path(__file__).parent.relative_to(PROJECT_ROOT_PATH)
 # Should be "private_gpt/ui/avatar-bot.ico"
-AVATAR_BOT = THIS_DIRECTORY_RELATIVE / "avatar-bot.ico"
+AVATAR_BOT = THIS_DIRECTORY_RELATIVE / "monacoTelecom-bot.ico"
+ALTORES_ICON = THIS_DIRECTORY_RELATIVE / "altores_favicon.ico"
 
-UI_TAB_TITLE = "My Private GPT"
+UI_TAB_TITLE = "Private Altores Intelligence"
 
 SOURCES_SEPARATOR = "<hr>Sources: \n"
 
@@ -370,7 +371,7 @@ class PrivateGptUi:
             theme=gr.themes.Soft(primary_hue=slate),
             css=".logo { "
             "display:flex;"
-            "background-color: #C7BAFF;"
+            "background: linear-gradient(135deg, #ffd0e0 0%, #a7c1ff 100%);"
             "height: 80px;"
             "border-radius: 8px;"
             "align-content: center;"
@@ -383,7 +384,8 @@ class PrivateGptUi:
             "#chatbot { flex-grow: 1 !important; overflow: auto !important;}"
             "#col { height: calc(100vh - 112px - 16px) !important; }"
             "hr { margin-top: 1em; margin-bottom: 1em; border: 0; border-top: 1px solid #FFF; }"
-            ".avatar-image { background-color: antiquewhite; border-radius: 2px; }"
+            ".avatar-container { display: contents !important; }"
+            ".avatar-image { height: 45px !important; width: 45px !important; background-color: transparent !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; object-fit: contain; }"
             ".footer { text-align: center; margin-top: 20px; font-size: 14px; display: flex; align-items: center; justify-content: center; }"
             ".footer-zylon-link { display:flex; margin-left: 5px; text-decoration: auto; color: var(--body-text-color); }"
             ".footer-zylon-link:hover { color: #C7BAFF; }"
@@ -562,10 +564,10 @@ class PrivateGptUi:
                     )
 
             with gr.Row():
-                avatar_byte = AVATAR_BOT.read_bytes()
+                avatar_byte = ALTORES_ICON.read_bytes()
                 f_base64 = f"data:image/png;base64,{base64.b64encode(avatar_byte).decode('utf-8')}"
                 gr.HTML(
-                    f"<div class='footer'><a class='footer-zylon-link' href='https://zylon.ai/'>Maintained by Zylon <img class='footer-zylon-ico' src='{f_base64}' alt=Zylon></a></div>"
+                    f"<div class='footer'><a class='footer-zylon-link' href='https://altores.app'>Powered by Altores <img class='footer-zylon-ico' src='{f_base64}' alt=Zylon></a></div>"
                 )
 
         return blocks
@@ -579,7 +581,7 @@ class PrivateGptUi:
         blocks = self.get_ui_blocks()
         blocks.queue()
         logger.info("Mounting the gradio UI, at path=%s", path)
-        gr.mount_gradio_app(app, blocks, path=path, favicon_path=AVATAR_BOT)
+        gr.mount_gradio_app(app, blocks, path=path, favicon_path=ALTORES_ICON)
 
 
 if __name__ == "__main__":
