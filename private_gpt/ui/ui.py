@@ -3,6 +3,7 @@
 import base64
 import logging
 import time
+import hashlib 
 from collections.abc import Iterable
 from enum import Enum
 from pathlib import Path
@@ -37,6 +38,9 @@ UI_TAB_TITLE = "Private Altores Intelligence"
 
 SOURCES_SEPARATOR = "<hr>Sources: \n"
 
+# Configuration sécurité
+ADMIN_PASSWORD = "&cByzq@G88KE5D"  # TODO: À changer !
+ADMIN_PASSWORD_HASH = hashlib.sha256(ADMIN_PASSWORD.encode()).hexdigest()
 
 class Modes(str, Enum):
     RAG_MODE = "RAG"
@@ -106,36 +110,138 @@ class PrivateGptUi:
             settings().ui.default_mode, Modes.RAG_MODE
         )
         self._system_prompt = self._get_default_system_prompt(self._default_mode)
+        
+        # État d'authentification
+        self._admin_authenticated = False
 
     def _chat(
         self, message: str, history: list[list[str]], mode: Modes, *_: Any
     ) -> Any:
         def yield_deltas(completion_gen: CompletionGen) -> Iterable[str]:
-            full_response: str = ""
-            stream = completion_gen.response
-            for delta in stream:
-                if isinstance(delta, str):
-                    full_response += str(delta)
-                elif isinstance(delta, ChatResponse):
-                    full_response += delta.delta or ""
-                yield full_response
-                time.sleep(0.02)
-
-            if completion_gen.sources:
-                full_response += SOURCES_SEPARATOR
-                cur_sources = Source.curate_sources(completion_gen.sources)
-                sources_text = "\n\n\n"
-                used_files = set()
-                for index, source in enumerate(cur_sources, start=1):
-                    if f"{source.file}-{source.page}" not in used_files:
-                        sources_text = (
-                            sources_text
-                            + f"{index}. {source.file} (page {source.page}) \n\n"
-                        )
-                        used_files.add(f"{source.file}-{source.page}")
-                sources_text += "<hr>\n\n"
-                full_response += sources_text
-            yield full_response
+                """Yield les deltas en gérant le raisonnement <think>."""
+                
+                class ReasoningParser:
+                    def __init__(self):
+                        self.is_in_reasoning = False
+                        self.has_reasoning = False
+                        self.reasoning_content = ""
+                        self.response_content = ""
+                        self.start_time = None
+                        self.elapsed_time = 0
+                        self.buffer = ""
+                        self.think_start = "<think>"
+                        self.think_end = "</think>"
+                        
+                    def process_chunk(self, text: str):
+                        """Traite un chunk de texte."""
+                        self.buffer += text
+                        
+                        while True:
+                            if not self.is_in_reasoning:
+                                # Chercher le début du raisonnement
+                                start_idx = self.buffer.find(self.think_start)
+                                if start_idx != -1:
+                                    # Ajouter le texte avant la balise à la réponse
+                                    self.response_content += self.buffer[:start_idx]
+                                    self.buffer = self.buffer[start_idx + len(self.think_start):]
+                                    self.is_in_reasoning = True
+                                    self.has_reasoning = True
+                                    self.start_time = time.time()
+                                else:
+                                    # Garder les derniers caractères au cas où la balise est coupée
+                                    if len(self.buffer) > len(self.think_start):
+                                        self.response_content += self.buffer[:-len(self.think_start)]
+                                        self.buffer = self.buffer[-len(self.think_start):]
+                                    break
+                            else:
+                                # En mode raisonnement, chercher la fin
+                                end_idx = self.buffer.find(self.think_end)
+                                if end_idx != -1:
+                                    self.reasoning_content += self.buffer[:end_idx]
+                                    self.buffer = self.buffer[end_idx + len(self.think_end):]
+                                    self.is_in_reasoning = False
+                                    # Calculer le temps SEULEMENT ici
+                                    self.elapsed_time = time.time() - self.start_time
+                                else:
+                                    # Continuer à accumuler le raisonnement
+                                    if len(self.buffer) > len(self.think_end):
+                                        self.reasoning_content += self.buffer[:-len(self.think_end)]
+                                        self.buffer = self.buffer[-len(self.think_end):]
+                                    break
+                                    
+                    def flush(self):
+                        """Vide le buffer restant."""
+                        if self.is_in_reasoning:
+                            self.reasoning_content += self.buffer
+                            if self.start_time:
+                                self.elapsed_time = time.time() - self.start_time
+                        else:
+                            self.response_content += self.buffer
+                        self.buffer = ""
+                        
+                    def get_formatted_output(self) -> str:
+                        """Retourne le contenu formaté pour Gradio."""
+                        # Si on n'a jamais eu de raisonnement, retourner juste la réponse
+                        if not self.has_reasoning:
+                            return self.response_content
+                        
+                        # Format Markdown Gradio avec séparateur HTML
+                        if self.is_in_reasoning:
+                            elapsed = time.time() - self.start_time if self.start_time else 0
+                            # Section de raisonnement en cours
+                            reasoning_section = f"""<div style="border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: var(--panel-background-fill);">
+        <div style="font-weight: bold; margin-bottom: 8px;">🧠 Raisonnement en cours... (⏱️ {elapsed:.1f}s)</div>
+        <pre style="margin: 0; white-space: pre-wrap; font-family: monospace; color: var(--body-text-color-subdued);">{self.reasoning_content}</pre>
+        </div>"""
+                        else:
+                            # Section de raisonnement terminé - utilisons un style accordéon simple
+                            reasoning_section = f"""<div style="border: 1px solid var(--border-color-primary); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: var(--panel-background-fill);">
+        <details>
+        <summary style="cursor: pointer; font-weight: bold;">🧠 Afficher le raisonnement (⏱️ {self.elapsed_time:.2f}s)</summary>
+        <pre style="margin-top: 8px; white-space: pre-wrap; font-family: monospace; color: var(--body-text-color-subdued);">{self.reasoning_content}</pre>
+        </details>
+        </div>"""
+                        
+                        # Séparer clairement le raisonnement de la réponse
+                        return reasoning_section + "\n\n" + self.response_content
+                
+                # Initialiser le parser
+                parser = ReasoningParser()
+                
+                # Traiter le stream
+                stream = completion_gen.response
+                for delta in stream:
+                    if isinstance(delta, str):
+                        text = str(delta)
+                    elif isinstance(delta, ChatResponse):
+                        text = delta.delta or ""
+                    else:
+                        continue
+                        
+                    parser.process_chunk(text)
+                    yield parser.get_formatted_output()
+                    time.sleep(0.02)
+                
+                # Vider le buffer final
+                parser.flush()
+                
+                # Ajouter les sources si présentes
+                if completion_gen.sources:
+                    parser.response_content += SOURCES_SEPARATOR
+                    cur_sources = Source.curate_sources(completion_gen.sources)
+                    sources_text = "\n\n\n"
+                    used_files = set()
+                    for index, source in enumerate(cur_sources, start=1):
+                        if f"{source.file}-{source.page}" not in used_files:
+                            sources_text = (
+                                sources_text
+                                + f"{index}. {source.file} (page {source.page}) \n\n"
+                            )
+                            used_files.add(f"{source.file}-{source.page}")
+                    sources_text += "<hr>\n\n"
+                    parser.response_content += sources_text
+                
+                yield parser.get_formatted_output()
 
         def yield_tokens(token_gen: TokenGen) -> Iterable[str]:
             full_response: str = ""
@@ -284,6 +390,93 @@ class PrivateGptUi:
             gr.update(value=self._explanation_mode),
         ]
 
+    def _verify_password(self, password: str) -> bool:
+        """Vérifie le mot de passe admin"""
+        if not password:
+            return False
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        return password_hash == ADMIN_PASSWORD_HASH
+
+    def _toggle_admin_access(self, password: str) -> tuple[Any, Any, Any, Any, Any]:
+        """Toggle l'accès admin avec vérification mot de passe"""
+        if self._admin_authenticated:
+            # Déconnexion
+            self._admin_authenticated = False
+            return [
+                gr.update(visible=True),   # auth_section (réapparaît)
+                gr.update(visible=False),  # admin_section (disparaît)
+                gr.update(value="🔒"),     # unlock_button
+                gr.update(value=""),       # password_input (clear)
+                gr.update(label=self._get_chatbot_label()),  # chatbot label update
+            ]
+        else:
+            # Tentative de connexion
+            if self._verify_password(password):
+                self._admin_authenticated = True
+                return [
+                    gr.update(visible=False),  # auth_section (disparaît)
+                    gr.update(visible=True),   # admin_section (apparaît)
+                    gr.update(value="🔓"),     # unlock_button  
+                    gr.update(value=""),       # password_input (clear)
+                    gr.update(label=self._get_chatbot_label()),  # chatbot label update
+                ]
+            else:
+                return [
+                    gr.update(visible=True),   # auth_section (reste visible)
+                    gr.update(visible=False),  # admin_section (reste cachée)
+                    gr.update(value="🔒"),     # unlock_button
+                    gr.update(value="❌ Mot de passe incorrect"),  # password_input
+                    gr.update(),  # chatbot pas de changement
+                ]
+
+    def _logout_admin(self) -> tuple[Any, Any, Any, Any, Any]:
+        """Déconnexion admin"""
+        self._admin_authenticated = False
+        return [
+            gr.update(visible=True),   # auth_section (réapparaît)
+            gr.update(visible=False),  # admin_section (disparaît)
+            gr.update(value="🔒"),     # unlock_button
+            gr.update(value=""),       # password_input (clear)
+            gr.update(label=self._get_chatbot_label()),  # chatbot label update
+        ]
+
+    def _get_chatbot_label(self) -> str:
+        """Retourne le label approprié selon l'état d'authentification"""
+        if not self._admin_authenticated:
+            # Utilisateur non connecté - afficher le nom générique
+            return "Altores Intelligence Performance"
+        else:
+            # Utilisateur admin connecté - afficher le vrai modèle
+            def get_model_label() -> str | None:
+                """Get model label from llm mode setting YAML."""
+                config_settings = settings()
+                if config_settings is None:
+                    raise ValueError("Settings are not configured.")
+
+                llm_mode = config_settings.llm.mode
+                model_mapping = {
+                    "llamacpp": config_settings.llamacpp.llm_hf_model_file,
+                    "openai": config_settings.openai.model,
+                    "openailike": config_settings.openai.model,
+                    "azopenai": config_settings.azopenai.llm_model,
+                    "sagemaker": config_settings.sagemaker.llm_endpoint_name,
+                    "mock": llm_mode,
+                    "ollama": config_settings.ollama.llm_model,
+                    "gemini": config_settings.gemini.model,
+                }
+
+                if llm_mode not in model_mapping:
+                    print(f"Invalid 'llm mode': {llm_mode}")
+                    return None
+
+                return model_mapping[llm_mode]
+
+            model_label = get_model_label()
+            if model_label is not None:
+                return f"LLM: {settings().llm.mode} | Model: {model_label}"
+            else:
+                return f"LLM: {settings().llm.mode}"
+
     def _list_ingested_files(self) -> list[list[str]]:
         files = set()
         for ingested_document in self._ingest_service.list_ingested():
@@ -395,7 +588,19 @@ class PrivateGptUi:
                 gr.HTML(f"<div class='logo'/><img src={logo_svg} alt=PrivateGPT></div")
 
             with gr.Row(equal_height=False):
-                with gr.Column(scale=3):
+                # Section d'authentification (visible quand non connecté)
+                with gr.Column(scale=2, visible=True) as auth_section:
+                    gr.Markdown("### 🔐 Admin Access")
+                    password_input = gr.Textbox(
+                        type="password", 
+                        placeholder="Enter admin password",
+                        label="Password",
+                        scale=3
+                    )
+                    unlock_button = gr.Button("🔒", scale=1, size="sm")
+                
+                # Section admin (cachée par défaut)  
+                with gr.Column(scale=3, visible=False) as admin_section:
                     default_mode = self._default_mode
                     mode = gr.Radio(
                         [mode.value for mode in MODES],
@@ -490,6 +695,11 @@ class PrivateGptUi:
                         interactive=True,
                         render=False,
                     )
+                    
+                    # Bouton de déconnexion en bas de la section admin
+                    with gr.Row():
+                        logout_button = gr.Button("🚪 Déconnexion", size="sm", variant="secondary")
+                    
                     # When mode changes, set default system prompt, and other stuffs
                     mode.change(
                         self._set_current_mode,
@@ -502,66 +712,44 @@ class PrivateGptUi:
                         inputs=system_prompt_input,
                     )
 
-                    def get_model_label() -> str | None:
-                        """Get model label from llm mode setting YAML.
-
-                        Raises:
-                            ValueError: If an invalid 'llm_mode' is encountered.
-
-                        Returns:
-                            str: The corresponding model label.
-                        """
-                        # Get model label from llm mode setting YAML
-                        # Labels: local, openai, openailike, sagemaker, mock, ollama
-                        config_settings = settings()
-                        if config_settings is None:
-                            raise ValueError("Settings are not configured.")
-
-                        # Get llm_mode from settings
-                        llm_mode = config_settings.llm.mode
-
-                        # Mapping of 'llm_mode' to corresponding model labels
-                        model_mapping = {
-                            "llamacpp": config_settings.llamacpp.llm_hf_model_file,
-                            "openai": config_settings.openai.model,
-                            "openailike": config_settings.openai.model,
-                            "azopenai": config_settings.azopenai.llm_model,
-                            "sagemaker": config_settings.sagemaker.llm_endpoint_name,
-                            "mock": llm_mode,
-                            "ollama": config_settings.ollama.llm_model,
-                            "gemini": config_settings.gemini.model,
-                        }
-
-                        if llm_mode not in model_mapping:
-                            print(f"Invalid 'llm mode': {llm_mode}")
-                            return None
-
-                        return model_mapping[llm_mode]
-
                 with gr.Column(scale=7, elem_id="col"):
-                    # Determine the model label based on the value of PGPT_PROFILES
-                    model_label = get_model_label()
-                    if model_label is not None:
-                        label_text = (
-                            f"LLM: {settings().llm.mode} | Model: {model_label}"
-                        )
-                    else:
-                        label_text = f"LLM: {settings().llm.mode}"
+                    # Utiliser le label approprié selon l'état d'authentification
+                    chatbot_component = gr.Chatbot(
+                        label=self._get_chatbot_label(),
+                        show_copy_button=True,
+                        elem_id="chatbot",
+                        render=False,
+                        avatar_images=(
+                            None,
+                            AVATAR_BOT,
+                        ),
+                    )
 
                     _ = gr.ChatInterface(
                         self._chat,
-                        chatbot=gr.Chatbot(
-                            label=label_text,
-                            show_copy_button=True,
-                            elem_id="chatbot",
-                            render=False,
-                            avatar_images=(
-                                None,
-                                AVATAR_BOT,
-                            ),
-                        ),
+                        chatbot=chatbot_component,
                         additional_inputs=[mode, upload_button, system_prompt_input],
                     )
+            
+            # Événements d'authentification (à l'extérieur des sections)
+            unlock_button.click(
+                self._toggle_admin_access,
+                inputs=[password_input],
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
+            
+            # Authentification sur Enter dans le champ password
+            password_input.submit(
+                self._toggle_admin_access,
+                inputs=[password_input], 
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
+            
+            # Événement de déconnexion
+            logout_button.click(
+                self._logout_admin,
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
 
             with gr.Row():
                 avatar_byte = ALTORES_ICON.read_bytes()
