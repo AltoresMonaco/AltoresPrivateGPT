@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Ollama service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_ORIGINS=*
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # PrivateGPT service
+  private-gpt:
+    image: docker.io/altores/privateg-gpt:latest
+    container_name: private-gpt
+    ports:
+      - "8080:8080"
+    environment:
+      - PGPT_PROFILES=ollama
+      - APP_ENV=prod
+    volumes:
+      - ./local_data:/home/worker/app/local_data
+      - ./models:/home/worker/app/models
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data: 
