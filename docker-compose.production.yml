@@ -18,11 +18,11 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
 
   # PrivateGPT service
   private-gpt:
-    image: docker.io/altores/privateg-gpt:latest
+    image: docker.io/altores/altores-pgpt:latest
     container_name: private-gpt
     ports:
       - "8080:8080"
@@ -37,4 +37,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  ollama_data: 
+  ollama_data:

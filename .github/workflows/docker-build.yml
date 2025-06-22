@@ -9,7 +9,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: altores/privateg-gpt
+  IMAGE_NAME: altores/altores-pgpt
 
 jobs:
   build-and-push:

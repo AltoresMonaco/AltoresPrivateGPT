@@ -26,7 +26,7 @@ mkdir -p models
 
 # Télécharger la dernière image Docker
 echo "📥 Téléchargement de l'image Docker..."
-docker pull docker.io/altores/privateg-gpt:latest
+docker pull docker.io/altores/altores-pgpt:latest
 
 # Démarrer les services
 echo "🔧 Démarrage des services..."
