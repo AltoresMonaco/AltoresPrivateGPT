@@ -34,7 +34,7 @@ THIS_DIRECTORY_RELATIVE = Path(__file__).parent.relative_to(PROJECT_ROOT_PATH)
 AVATAR_BOT = THIS_DIRECTORY_RELATIVE / "monacoTelecom-bot.ico"
 ALTORES_ICON = THIS_DIRECTORY_RELATIVE / "altores_favicon.ico"
 
-UI_TAB_TITLE = "Altores Private Intelligence"
+UI_TAB_TITLE = "Private Altores Intelligence"
 
 SOURCES_SEPARATOR = "<hr>Sources: \n"
 
@@ -397,48 +397,54 @@ class PrivateGptUi:
         password_hash = hashlib.sha256(password.encode()).hexdigest()
         return password_hash == ADMIN_PASSWORD_HASH
 
-    def _show_auth_modal(self) -> tuple[Any, Any]:
-        """Affiche la modale d'authentification"""
-        return gr.update(visible=True), gr.update(value="")
-
-    def _authenticate(self, password: str) -> tuple[Any, Any, Any, Any, Any]:
-        """Authentifie l'utilisateur"""
-        if self._verify_password(password):
-            self._admin_authenticated = True
+    def _toggle_admin_access(self, password: str) -> tuple[Any, Any, Any, Any, Any]:
+        """Toggle l'accès admin avec vérification mot de passe"""
+        if self._admin_authenticated:
+            # Déconnexion
+            self._admin_authenticated = False
             return [
-                gr.update(visible=False),  # auth_modal
-                gr.update(visible=True),   # admin_column
-                gr.update(visible=True),   # additional_inputs_accordion
-                gr.update(label=self._get_chatbot_label()),  # chatbot
-                gr.update(value=""),        # password_input
+                gr.update(visible=True),   # auth_section (réapparaît)
+                gr.update(visible=False),  # admin_section (disparaît)
+                gr.update(value="🔒"),     # unlock_button
+                gr.update(value=""),       # password_input (clear)
+                gr.update(label=self._get_chatbot_label()),  # chatbot label update
             ]
         else:
-            return [
-                gr.update(visible=True),   # auth_modal reste visible
-                gr.update(visible=False),  # admin_column reste cachée
-                gr.update(visible=False),  # additional_inputs_accordion reste caché
-                gr.update(),               # chatbot pas de changement
-                gr.update(value="", placeholder="❌ Mot de passe incorrect"),  # password_input
-            ]
+            # Tentative de connexion
+            if self._verify_password(password):
+                self._admin_authenticated = True
+                return [
+                    gr.update(visible=False),  # auth_section (disparaît)
+                    gr.update(visible=True),   # admin_section (apparaît)
+                    gr.update(value="🔓"),     # unlock_button  
+                    gr.update(value=""),       # password_input (clear)
+                    gr.update(label=self._get_chatbot_label()),  # chatbot label update
+                ]
+            else:
+                return [
+                    gr.update(visible=True),   # auth_section (reste visible)
+                    gr.update(visible=False),  # admin_section (reste cachée)
+                    gr.update(value="🔒"),     # unlock_button
+                    gr.update(value="❌ Mot de passe incorrect"),  # password_input
+                    gr.update(),  # chatbot pas de changement
+                ]
 
-    def _cancel_auth(self) -> tuple[Any, Any]:
-        """Annule l'authentification"""
-        return gr.update(visible=False), gr.update(value="")
-
-    def _logout_admin(self) -> tuple[Any, Any, Any]:
+    def _logout_admin(self) -> tuple[Any, Any, Any, Any, Any]:
         """Déconnexion admin"""
         self._admin_authenticated = False
         return [
-            gr.update(visible=False),  # admin_column
-            gr.update(visible=False),  # additional_inputs_accordion
-            gr.update(label=self._get_chatbot_label()),  # chatbot
+            gr.update(visible=True),   # auth_section (réapparaît)
+            gr.update(visible=False),  # admin_section (disparaît)
+            gr.update(value="🔒"),     # unlock_button
+            gr.update(value=""),       # password_input (clear)
+            gr.update(label=self._get_chatbot_label()),  # chatbot label update
         ]
 
     def _get_chatbot_label(self) -> str:
         """Retourne le label approprié selon l'état d'authentification"""
         if not self._admin_authenticated:
             # Utilisateur non connecté - afficher le nom générique
-            return "Altores Intelligence"
+            return "Altores Intelligence Performance"
         else:
             # Utilisateur admin connecté - afficher le vrai modèle
             def get_model_label() -> str | None:
@@ -556,156 +562,45 @@ class PrivateGptUi:
         with gr.Blocks(
             title=UI_TAB_TITLE,
             theme=gr.themes.Soft(primary_hue=slate),
-            css="""
-            /* Layout principal */
-            .gradio-container {
-                height: 100vh !important;
-                display: flex !important;
-                flex-direction: column !important;
-                max-width: 100% !important;
-            }
-            
-            .header { 
-                display: flex;
-                align-items: center;
-                padding: 12px 20px;
-                background: linear-gradient(135deg, #ffd0e0 0%, #a7c1ff 100%);
-                border-radius: 8px;
-                margin-bottom: 20px;
-            }
-            .header-title {
-                flex: 1;
-                font-size: 24px;
-                font-weight: bold;
-                color: #333;
-            }
-            .refresh-btn {
-                background: none;
-                border: none;
-                cursor: pointer;
-                font-size: 20px;
-                padding: 8px;
-                border-radius: 4px;
-                transition: background 0.2s;
-            }
-            .refresh-btn:hover {
-                background: rgba(0,0,0,0.1);
-            }
-            
-            /* Container principal pour le chat */
-            #chat-col {
-                display: flex !important;
-                flex-direction: column !important;
-                height: calc(100vh - 200px) !important;
-            }
-            
-            #chatbot { 
-                flex: 1 !important;
-                overflow-y: auto !important;
-                min-height: 400px !important;
-            }
-            
-            .footer { 
-                text-align: center; 
-                padding: 20px 0;
-                font-size: 14px;
-                margin-top: auto;
-            }
-            .footer-link { 
-                color: var(--body-text-color); 
-                text-decoration: none;
-                cursor: pointer;
-                display: inline-flex;
-                align-items: center;
-                gap: 5px;
-            }
-            .footer-link:hover { 
-                color: #C7BAFF; 
-            }
-            .auth-modal {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: var(--background-fill-primary);
-                padding: 30px;
-                border-radius: 12px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-                z-index: 1000;
-                width: 400px;
-            }
-            .modal-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 999;
-            }
-            hr { 
-                margin-top: 1em; 
-                margin-bottom: 1em; 
-                border: 0; 
-                border-top: 1px solid #FFF; 
-            }
-            .avatar-container { 
-                display: contents !important; 
-            }
-            .avatar-image { 
-                height: 45px !important; 
-                width: 45px !important; 
-                background-color: transparent !important; 
-                border-radius: 0 !important; 
-                padding: 0 !important; 
-                margin: 0 !important; 
-                object-fit: contain; 
-            }
-            
-            /* Ajustements pour l'accordéon */
-            .accordion {
-                margin-bottom: 10px;
-            }
-            
-            /* Forcer la disposition correcte du ChatInterface */
-            .contain {
-                display: flex !important;
-                flex-direction: column !important;
-                height: 100% !important;
-            }
-            
-            #component-0 {
-                flex: 1 !important;
-                display: flex !important;
-                flex-direction: column !important;
-            }
-            """,
+            css=".logo { "
+            "display:flex;"
+            "background: linear-gradient(135deg, #ffd0e0 0%, #a7c1ff 100%);"
+            "height: 80px;"
+            "border-radius: 8px;"
+            "align-content: center;"
+            "justify-content: center;"
+            "align-items: center;"
+            "}"
+            ".logo img { height: 25% }"
+            ".contain { display: flex !important; flex-direction: column !important; }"
+            "#component-0, #component-3, #component-10, #component-8  { height: 100% !important; }"
+            "#chatbot { flex-grow: 1 !important; overflow: auto !important;}"
+            "#col { height: calc(100vh - 112px - 16px) !important; }"
+            "hr { margin-top: 1em; margin-bottom: 1em; border: 0; border-top: 1px solid #FFF; }"
+            ".avatar-container { display: contents !important; }"
+            ".avatar-image { height: 45px !important; width: 45px !important; background-color: transparent !important; border-radius: 0 !important; padding: 0 !important; margin: 0 !important; object-fit: contain; }"
+            ".footer { text-align: center; margin-top: 20px; font-size: 14px; display: flex; align-items: center; justify-content: center; }"
+            ".footer-zylon-link { display:flex; margin-left: 5px; text-decoration: auto; color: var(--body-text-color); }"
+            ".footer-zylon-link:hover { color: #C7BAFF; }"
+            ".footer-zylon-ico { height: 20px; margin-left: 5px; background-color: antiquewhite; border-radius: 2px; }",
         ) as blocks:
-            # Header avec titre et bouton refresh
             with gr.Row():
-                gr.HTML("""
-                <div class="header">
-                    <div class="header-title">Altores Private Intelligence</div>
-                    <button class="refresh-btn" onclick="location.reload()">🔄</button>
-                </div>
-                """)
-
-            # Modale d'authentification (cachée par défaut)
-            with gr.Group(visible=False, elem_classes="modal-overlay") as auth_modal:
-                with gr.Column(elem_classes="auth-modal"):
-                    gr.Markdown("### 🔐 Authentification Admin")
-                    password_input = gr.Textbox(
-                        type="password",
-                        placeholder="Entrez le mot de passe admin",
-                        label="Mot de passe"
-                    )
-                    with gr.Row():
-                        auth_button = gr.Button("Se connecter", variant="primary")
-                        cancel_button = gr.Button("Annuler", variant="secondary")
+                gr.HTML(f"<div class='logo'/><img src={logo_svg} alt=PrivateGPT></div")
 
             with gr.Row(equal_height=False):
-                # Colonne admin (cachée par défaut)
-                with gr.Column(scale=3, visible=False) as admin_column:
+                # Section d'authentification (visible quand non connecté)
+                with gr.Column(scale=2, visible=True) as auth_section:
+                    gr.Markdown("### 🔐 Admin Access")
+                    password_input = gr.Textbox(
+                        type="password", 
+                        placeholder="Enter admin password",
+                        label="Password",
+                        scale=3
+                    )
+                    unlock_button = gr.Button("🔒", scale=1, size="sm")
+                
+                # Section admin (cachée par défaut)  
+                with gr.Column(scale=3, visible=False) as admin_section:
                     default_mode = self._default_mode
                     mode = gr.Radio(
                         [mode.value for mode in MODES],
@@ -730,7 +625,7 @@ class PrivateGptUi:
                         label="Ingested Files",
                         height=235,
                         interactive=False,
-                        render=False,
+                        render=False,  # Rendered under the button
                     )
                     upload_button.upload(
                         self._upload_file,
@@ -817,8 +712,7 @@ class PrivateGptUi:
                         inputs=system_prompt_input,
                     )
 
-                # Colonne principale du chat (toujours visible, centrée quand seule)
-                with gr.Column(scale=7, elem_id="chat-col"):
+                with gr.Column(scale=7, elem_id="col"):
                     # Utiliser le label approprié selon l'état d'authentification
                     chatbot_component = gr.Chatbot(
                         label=self._get_chatbot_label(),
@@ -831,62 +725,38 @@ class PrivateGptUi:
                         ),
                     )
 
-                    # Additional inputs accordion (caché par défaut, visible si authentifié)
-                    with gr.Accordion("Additional Inputs", open=False, visible=False, elem_classes="accordion") as additional_inputs_accordion:
-                        system_prompt_input.render()
-
                     _ = gr.ChatInterface(
                         self._chat,
                         chatbot=chatbot_component,
                         additional_inputs=[mode, upload_button, system_prompt_input],
-                        retry_btn=None,
-                        undo_btn=None,
-                        clear_btn=None,
                     )
             
-            # Footer avec lien Powered by Altores
+            # Événements d'authentification (à l'extérieur des sections)
+            unlock_button.click(
+                self._toggle_admin_access,
+                inputs=[password_input],
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
+            
+            # Authentification sur Enter dans le champ password
+            password_input.submit(
+                self._toggle_admin_access,
+                inputs=[password_input], 
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
+            
+            # Événement de déconnexion
+            logout_button.click(
+                self._logout_admin,
+                outputs=[auth_section, admin_section, unlock_button, password_input, chatbot_component]
+            )
+
             with gr.Row():
                 avatar_byte = ALTORES_ICON.read_bytes()
                 f_base64 = f"data:image/png;base64,{base64.b64encode(avatar_byte).decode('utf-8')}"
-                footer_html = gr.HTML(f"""
-                <div class="footer">
-                    <a class="footer-link" onclick="document.getElementById('auth-btn').click()">
-                        Powered by Altores 
-                        <img style="height: 20px; background: white; border-radius: 2px;" src="{f_base64}" alt="Altores">
-                    </a>
-                </div>
-                """)
-                
-                # Bouton invisible pour déclencher l'authentification
-                auth_trigger = gr.Button("", visible=False, elem_id="auth-btn")
-            
-            # Événements d'authentification
-            auth_trigger.click(
-                self._show_auth_modal,
-                outputs=[auth_modal, password_input]
-            )
-            
-            auth_button.click(
-                self._authenticate,
-                inputs=[password_input],
-                outputs=[auth_modal, admin_column, additional_inputs_accordion, chatbot_component, password_input]
-            )
-            
-            password_input.submit(
-                self._authenticate,
-                inputs=[password_input],
-                outputs=[auth_modal, admin_column, additional_inputs_accordion, chatbot_component, password_input]
-            )
-            
-            cancel_button.click(
-                self._cancel_auth,
-                outputs=[auth_modal, password_input]
-            )
-            
-            logout_button.click(
-                self._logout_admin,
-                outputs=[admin_column, additional_inputs_accordion, chatbot_component]
-            )
+                gr.HTML(
+                    f"<div class='footer'><a class='footer-zylon-link' href='https://altores.app'>Powered by Altores <img class='footer-zylon-ico' src='{f_base64}' alt=Zylon></a></div>"
+                )
 
         return blocks
 
